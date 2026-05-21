@@ -116,9 +116,12 @@ export async function POST(request: Request) {
 
           let accumulated = ''
           for await (const event of stream) {
-            if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-              accumulated += event.delta.text
-              // 每收到一些内容就发个空格保持连接
+            if (event.type === 'content_block_delta') {
+              if (event.delta.type === 'text_delta') {
+                accumulated += event.delta.text
+              } else if ('text' in event.delta) {
+                accumulated += (event.delta as any).text
+              }
               if (accumulated.length % 200 < 10) {
                 controller.enqueue(encoder.encode(' '))
               }
@@ -127,8 +130,10 @@ export async function POST(request: Request) {
 
           parsed = extractJson(accumulated)
           break
-        } catch {
+        } catch (e) {
           if (attempt === 1) {
+            // 把错误也发出来方便调试
+            controller.enqueue(encoder.encode('\n' + JSON.stringify({ _error: String(e) })))
             parsed = makeFallback(main_question)
           }
         }
