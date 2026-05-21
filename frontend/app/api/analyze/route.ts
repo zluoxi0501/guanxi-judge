@@ -40,8 +40,6 @@ function makeFallback(mainQuestion: string) {
   }
 }
 
-export const runtime = 'edge'
-
 export async function POST(request: Request) {
   const { pain_points, custom_pain_point, story, main_question } = await request.json()
 
@@ -54,129 +52,73 @@ export async function POST(request: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
 
-  // 用原始 fetch + streaming 调中转站，保持连接活跃不超时
-  const encoder = new TextEncoder()
+  let parsed: Record<string, any> | null = null
 
-  const readable = new ReadableStream({
-    async start(controller) {
-      let parsed: Record<string, any> | null = null
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const apiRes = await fetch(`${baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 3000,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
+      })
 
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const apiRes = await fetch(`${baseUrl}/v1/messages`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': apiKey,
-              'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({
-              model: 'claude-sonnet-4-6',
-              max_tokens: 3000,
-              stream: true,
-              system: SYSTEM_PROMPT,
-              messages: [{ role: 'user', content: userPrompt }],
-            }),
-          })
-
-          if (!apiRes.ok) {
-            const errText = await apiRes.text()
-            throw new Error(`API ${apiRes.status}: ${errText.slice(0, 200)}`)
-          }
-
-          const reader = apiRes.body!.getReader()
-          const decoder = new TextDecoder()
-          let accumulated = ''
-          let buffer = ''
-
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop() ?? ''
-
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue
-              const data = line.slice(6).trim()
-              if (data === '[DONE]') continue
-              try {
-                const event = JSON.parse(data)
-                if (event.type === 'content_block_delta' && event.delta?.text) {
-                  accumulated += event.delta.text
-                }
-              } catch {}
-            }
-
-            // 每次读到数据就发个空格 keepalive
-            controller.enqueue(encoder.encode(' '))
-          }
-
-          parsed = extractJson(accumulated)
-          break
-        } catch (e) {
-          if (attempt === 1) {
-            parsed = makeFallback(main_question)
-          }
-          // 第一次失败，继续第二次尝试
-        }
+      if (!apiRes.ok) {
+        throw new Error(`API ${apiRes.status}`)
       }
 
-      if (!parsed) {
+      const data = await apiRes.json()
+      const textBlock = data.content?.find((b: any) => b.type === 'text')
+      const rawOutput = textBlock?.text ?? ''
+      parsed = extractJson(rawOutput)
+      break
+    } catch {
+      if (attempt === 1) {
         parsed = makeFallback(main_question)
       }
+    }
+  }
 
-      try {
-        // 构建最终结果
-        const labelToId: Record<string, string> = {}
-        for (const [k, v] of Object.entries(QUESTION_LABELS)) {
-          labelToId[v] = k
-        }
+  if (!parsed) parsed = makeFallback(main_question)
 
-        const sqaRaw = parsed.selected_question_answer ?? {}
-        const otherRaw: any[] = parsed.other_perspectives ?? []
+  const labelToId: Record<string, string> = {}
+  for (const [k, v] of Object.entries(QUESTION_LABELS)) {
+    labelToId[v] = k
+  }
 
-        const result = {
-          id: crypto.randomUUID(),
-          result: {
-            core_judgment: parsed.core_judgment ?? '',
-            real_need: parsed.real_need ?? '',
-            relationship_structure: parsed.relationship_structure ?? '',
-            future_trend: parsed.future_trend ?? '',
-            final_advice: parsed.final_advice ?? '',
-            advice_type: parsed.advice_type ?? 'observe',
-            closing_words: parsed.closing_words ?? '',
-            selected_question: main_question,
-            selected_question_answer: {
-              id: main_question,
-              title: sqaRaw.title ?? QUESTION_LABELS[main_question] ?? '',
-              hook: PERSPECTIVE_HOOKS[main_question] ?? '',
-              content: sqaRaw.content ?? '',
-            },
-            other_perspectives: otherRaw.map((p: any) => {
-              const title = p.title ?? ''
-              const qid = labelToId[title] ?? title
-              return { id: qid, title, hook: PERSPECTIVE_HOOKS[qid] ?? title, content: p.content ?? '' }
-            }),
-          },
-        }
+  const sqaRaw = parsed.selected_question_answer ?? {}
+  const otherRaw: any[] = parsed.other_perspectives ?? []
 
-        controller.enqueue(encoder.encode('\n' + JSON.stringify(result)))
-      } catch (e) {
-        // 如果连构建结果都失败了，发一个最简 fallback
-        const fb = { id: 'error', result: makeFallback(main_question), _error: String(e) }
-        controller.enqueue(encoder.encode('\n' + JSON.stringify(fb)))
-      }
-
-      controller.close()
-    },
-  })
-
-  return new Response(readable, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache',
+  return Response.json({
+    id: crypto.randomUUID(),
+    result: {
+      core_judgment: parsed.core_judgment ?? '',
+      real_need: parsed.real_need ?? '',
+      relationship_structure: parsed.relationship_structure ?? '',
+      future_trend: parsed.future_trend ?? '',
+      final_advice: parsed.final_advice ?? '',
+      advice_type: parsed.advice_type ?? 'observe',
+      closing_words: parsed.closing_words ?? '',
+      selected_question: main_question,
+      selected_question_answer: {
+        id: main_question,
+        title: sqaRaw.title ?? QUESTION_LABELS[main_question] ?? '',
+        hook: PERSPECTIVE_HOOKS[main_question] ?? '',
+        content: sqaRaw.content ?? '',
+      },
+      other_perspectives: otherRaw.map((p: any) => {
+        const title = p.title ?? ''
+        const qid = labelToId[title] ?? title
+        return { id: qid, title, hook: PERSPECTIVE_HOOKS[qid] ?? title, content: p.content ?? '' }
+      }),
     },
   })
 }
