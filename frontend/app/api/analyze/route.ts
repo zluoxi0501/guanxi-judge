@@ -1,7 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { SYSTEM_PROMPT, QUESTION_LABELS, PERSPECTIVE_HOOKS, buildUserPrompt } from '@/lib/prompt'
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 function extractJson(text: string): Record<string, any> {
   let cleaned = text.trim()
@@ -29,16 +26,16 @@ function makeFallback(mainQuestion: string) {
     real_need: '你想要的不是更多联系。\n\n你想要的是，不用靠猜来判断这段关系还在不在。',
     relationship_structure: '这段关系消耗你，是因为它的状态从来不稳定。\n\n你一直在用自己的稳定，去填补它的不稳定。',
     future_trend: '如果现在的模式不变，这段关系会继续在原地循环。\n\n真正的改变需要他主动做出选择。',
-    final_advice: '先停止主动填补空白，看他在你安静下来之后会不会主动出现。\n\n那个答案，比他说的任何话都真实。',
+    final_advice: '先停止主动填补空白，看他在你安静下来之后会不会主动出现。',
     advice_type: 'observe',
     closing_words: '你不是不知道关系有问题。\n\n你只是一直希望，这次会和以前不一样。',
     selected_question_answer: {
       title: QUESTION_LABELS[mainQuestion] ?? mainQuestion,
-      content: '这个问题的答案，藏在他平时的行为里，不在他说的话里。\n\n他靠近你的时候，是因为他需要你。\n\n他消失的时候，是因为他还没准备好承担这段关系的重量。',
+      content: '这个问题的答案，藏在他平时的行为里，不在他说的话里。',
     },
     other_perspectives: otherIds.map(k => ({
       title: QUESTION_LABELS[k],
-      content: '基于这段关系的整体状态，这个问题的答案需要时间来验证。\n\n你现在能做的，是先看清楚自己真正想要什么。',
+      content: '基于这段关系的整体状态，这个问题需要时间来验证。',
     })),
   }
 }
@@ -52,72 +49,120 @@ export async function POST(request: Request) {
 
   const userPrompt = buildUserPrompt(pain_points, custom_pain_point, story, main_question)
 
-  let parsed: Record<string, any> | null = null
-  let errorMsg = ''
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
+  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const message = await client.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 3000,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userPrompt }],
-      })
+  // 用原始 fetch + streaming 调中转站，保持连接活跃不超时
+  const encoder = new TextEncoder()
 
-      const textBlock = message.content.find(b => b.type === 'text')
-      const rawOutput = textBlock?.type === 'text' ? textBlock.text : ''
-      parsed = extractJson(rawOutput)
-      break
-    } catch (e) {
-      errorMsg = String(e)
-      if (attempt === 1) {
-        parsed = makeFallback(main_question)
+  const readable = new ReadableStream({
+    async start(controller) {
+      let parsed: Record<string, any> | null = null
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const apiRes = await fetch(`${baseUrl}/v1/messages`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-6',
+              max_tokens: 3000,
+              stream: true,
+              system: SYSTEM_PROMPT,
+              messages: [{ role: 'user', content: userPrompt }],
+            }),
+          })
+
+          if (!apiRes.ok) {
+            const errText = await apiRes.text()
+            throw new Error(`API ${apiRes.status}: ${errText.slice(0, 200)}`)
+          }
+
+          const reader = apiRes.body!.getReader()
+          const decoder = new TextDecoder()
+          let accumulated = ''
+          let buffer = ''
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n')
+            buffer = lines.pop() ?? ''
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue
+              const data = line.slice(6).trim()
+              if (data === '[DONE]') continue
+              try {
+                const event = JSON.parse(data)
+                if (event.type === 'content_block_delta' && event.delta?.text) {
+                  accumulated += event.delta.text
+                }
+              } catch {}
+            }
+
+            // 每次读到数据就发个空格 keepalive
+            controller.enqueue(encoder.encode(' '))
+          }
+
+          parsed = extractJson(accumulated)
+          break
+        } catch (e) {
+          if (attempt === 1) {
+            parsed = makeFallback(main_question)
+          }
+        }
       }
-    }
-  }
 
-  const labelToId: Record<string, string> = {}
-  for (const [k, v] of Object.entries(QUESTION_LABELS)) {
-    labelToId[v] = k
-  }
+      // 构建最终结果
+      const labelToId: Record<string, string> = {}
+      for (const [k, v] of Object.entries(QUESTION_LABELS)) {
+        labelToId[v] = k
+      }
 
-  const sqaRaw = parsed!.selected_question_answer ?? {}
-  const selectedQuestionAnswer = {
-    id: main_question,
-    title: sqaRaw.title ?? QUESTION_LABELS[main_question] ?? '',
-    hook: PERSPECTIVE_HOOKS[main_question] ?? '',
-    content: sqaRaw.content ?? '',
-  }
+      const sqaRaw = parsed!.selected_question_answer ?? {}
+      const otherRaw: any[] = parsed!.other_perspectives ?? []
 
-  const otherRaw: any[] = parsed!.other_perspectives ?? []
-  const otherPerspectives = otherRaw.map((p: any) => {
-    const title = p.title ?? ''
-    const qid = labelToId[title] ?? title
-    return {
-      id: qid,
-      title,
-      hook: PERSPECTIVE_HOOKS[qid] ?? title,
-      content: p.content ?? '',
-    }
+      const result = {
+        id: crypto.randomUUID(),
+        result: {
+          core_judgment: parsed!.core_judgment ?? '',
+          real_need: parsed!.real_need ?? '',
+          relationship_structure: parsed!.relationship_structure ?? '',
+          future_trend: parsed!.future_trend ?? '',
+          final_advice: parsed!.final_advice ?? '',
+          advice_type: parsed!.advice_type ?? 'observe',
+          closing_words: parsed!.closing_words ?? '',
+          selected_question: main_question,
+          selected_question_answer: {
+            id: main_question,
+            title: sqaRaw.title ?? QUESTION_LABELS[main_question] ?? '',
+            hook: PERSPECTIVE_HOOKS[main_question] ?? '',
+            content: sqaRaw.content ?? '',
+          },
+          other_perspectives: otherRaw.map((p: any) => {
+            const title = p.title ?? ''
+            const qid = labelToId[title] ?? title
+            return { id: qid, title, hook: PERSPECTIVE_HOOKS[qid] ?? title, content: p.content ?? '' }
+          }),
+        },
+      }
+
+      controller.enqueue(encoder.encode('\n' + JSON.stringify(result)))
+      controller.close()
+    },
   })
 
-  const id = crypto.randomUUID()
-
-  return Response.json({
-    id,
-    result: {
-      core_judgment: parsed!.core_judgment ?? '',
-      real_need: parsed!.real_need ?? '',
-      relationship_structure: parsed!.relationship_structure ?? '',
-      future_trend: parsed!.future_trend ?? '',
-      final_advice: parsed!.final_advice ?? '',
-      advice_type: parsed!.advice_type ?? 'observe',
-      closing_words: parsed!.closing_words ?? '',
-      selected_question: main_question,
-      selected_question_answer: selectedQuestionAnswer,
-      other_perspectives: otherPerspectives,
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'no-cache',
     },
   })
 }
-
-export const maxDuration = 60

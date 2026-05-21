@@ -71,7 +71,11 @@ export default function InputPage() {
       })
       console.log('[submit] status:', res.status)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
+      const text = await res.text()
+      const trimmed = text.trim()
+      const lastNl = trimmed.lastIndexOf('\n')
+      const jsonStr = lastNl >= 0 ? trimmed.slice(lastNl + 1) : trimmed
+      const data = JSON.parse(jsonStr)
       console.log('[submit] data:', data)
       sessionStorage.setItem('analysis_result', JSON.stringify(data))
       router.push('/result')
