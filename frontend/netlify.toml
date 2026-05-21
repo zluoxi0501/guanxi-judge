@@ -2,5 +2,8 @@
   command = "npm run build"
   publish = ".next"
 
+[functions]
+  external_node_modules = ["@anthropic-ai/sdk"]
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
