@@ -119,44 +119,56 @@ export async function POST(request: Request) {
           if (attempt === 1) {
             parsed = makeFallback(main_question)
           }
+          // 第一次失败，继续第二次尝试
         }
       }
 
-      // 构建最终结果
-      const labelToId: Record<string, string> = {}
-      for (const [k, v] of Object.entries(QUESTION_LABELS)) {
-        labelToId[v] = k
+      if (!parsed) {
+        parsed = makeFallback(main_question)
       }
 
-      const sqaRaw = parsed!.selected_question_answer ?? {}
-      const otherRaw: any[] = parsed!.other_perspectives ?? []
+      try {
+        // 构建最终结果
+        const labelToId: Record<string, string> = {}
+        for (const [k, v] of Object.entries(QUESTION_LABELS)) {
+          labelToId[v] = k
+        }
 
-      const result = {
-        id: crypto.randomUUID(),
-        result: {
-          core_judgment: parsed!.core_judgment ?? '',
-          real_need: parsed!.real_need ?? '',
-          relationship_structure: parsed!.relationship_structure ?? '',
-          future_trend: parsed!.future_trend ?? '',
-          final_advice: parsed!.final_advice ?? '',
-          advice_type: parsed!.advice_type ?? 'observe',
-          closing_words: parsed!.closing_words ?? '',
-          selected_question: main_question,
-          selected_question_answer: {
-            id: main_question,
-            title: sqaRaw.title ?? QUESTION_LABELS[main_question] ?? '',
-            hook: PERSPECTIVE_HOOKS[main_question] ?? '',
-            content: sqaRaw.content ?? '',
+        const sqaRaw = parsed.selected_question_answer ?? {}
+        const otherRaw: any[] = parsed.other_perspectives ?? []
+
+        const result = {
+          id: crypto.randomUUID(),
+          result: {
+            core_judgment: parsed.core_judgment ?? '',
+            real_need: parsed.real_need ?? '',
+            relationship_structure: parsed.relationship_structure ?? '',
+            future_trend: parsed.future_trend ?? '',
+            final_advice: parsed.final_advice ?? '',
+            advice_type: parsed.advice_type ?? 'observe',
+            closing_words: parsed.closing_words ?? '',
+            selected_question: main_question,
+            selected_question_answer: {
+              id: main_question,
+              title: sqaRaw.title ?? QUESTION_LABELS[main_question] ?? '',
+              hook: PERSPECTIVE_HOOKS[main_question] ?? '',
+              content: sqaRaw.content ?? '',
+            },
+            other_perspectives: otherRaw.map((p: any) => {
+              const title = p.title ?? ''
+              const qid = labelToId[title] ?? title
+              return { id: qid, title, hook: PERSPECTIVE_HOOKS[qid] ?? title, content: p.content ?? '' }
+            }),
           },
-          other_perspectives: otherRaw.map((p: any) => {
-            const title = p.title ?? ''
-            const qid = labelToId[title] ?? title
-            return { id: qid, title, hook: PERSPECTIVE_HOOKS[qid] ?? title, content: p.content ?? '' }
-          }),
-        },
+        }
+
+        controller.enqueue(encoder.encode('\n' + JSON.stringify(result)))
+      } catch (e) {
+        // 如果连构建结果都失败了，发一个最简 fallback
+        const fb = { id: 'error', result: makeFallback(main_question), _error: String(e) }
+        controller.enqueue(encoder.encode('\n' + JSON.stringify(fb)))
       }
 
-      controller.enqueue(encoder.encode('\n' + JSON.stringify(result)))
       controller.close()
     },
   })
