@@ -1,0 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500&family=Inter:wght@300;400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: #181818;
+  color: #e8e6e3;
+  font-family: Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  line-height: 1.7;
+}
+
+::selection {
+  background: rgba(196, 168, 130, 0.18);
+  color: #e8e6e3;
+}
+
+::-webkit-scrollbar        { width: 2px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: #333; border-radius: 1px; }
+
+textarea { resize: none; }
+
+/* animation fill-mode helper */
+.fill-both { animation-fill-mode: both; }
+
+/* stagger delays */
+.d-0   { animation-delay: 0ms; }
+.d-100 { animation-delay: 100ms; }
+.d-200 { animation-delay: 200ms; }
+.d-300 { animation-delay: 300ms; }
+.d-400 { animation-delay: 400ms; }
+.d-500 { animation-delay: 500ms; }
+.d-600 { animation-delay: 600ms; }
+.d-700 { animation-delay: 700ms; }
+.d-800 { animation-delay: 800ms; }
+.d-900 { animation-delay: 900ms; }
+.d-1000 { animation-delay: 1000ms; }
+.d-1100 { animation-delay: 1100ms; }
+.d-1200 { animation-delay: 1200ms; }
