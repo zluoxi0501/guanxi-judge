@@ -40,6 +40,8 @@ function makeFallback(mainQuestion: string) {
   }
 }
 
+export const runtime = 'edge'
+
 export async function POST(request: Request) {
   const { pain_points, custom_pain_point, story, main_question } = await request.json()
 
