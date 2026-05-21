@@ -324,8 +324,7 @@ export default function ResultPage() {
   }, [router])
 
   const track = (event: string, id: string) => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8002'
-    fetch(`${apiBase}/api/event/${id}`, {
+    fetch(`/api/event/${id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ event }),
@@ -352,8 +351,7 @@ export default function ResultPage() {
     if (!data || feedback) return
     setFeedback(type)
     gtrack('feedback', { current_step: 'result', hit_score: type })
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8002'
-    fetch(`${apiBase}/api/feedback/${data.id}`, {
+    fetch(`/api/feedback/${data.id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ feedback: type }),

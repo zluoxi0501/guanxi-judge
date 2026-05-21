@@ -64,8 +64,7 @@ export default function InputPage() {
     })
 
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8002'
-      const res = await fetch(`${apiBase}/api/analyze`, {
+      const res = await fetch('/api/analyze', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(payload),
