@@ -71,12 +71,7 @@ export default function InputPage() {
       })
       console.log('[submit] status:', res.status)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const text = await res.text()
-      // 流式响应：前面是空格（keepalive），最后一个换行后是 JSON
-      const jsonStr = text.trim()
-      const lastNewline = jsonStr.lastIndexOf('\n')
-      const finalJson = lastNewline >= 0 ? jsonStr.slice(lastNewline + 1) : jsonStr
-      const data = JSON.parse(finalJson)
+      const data = await res.json()
       console.log('[submit] data:', data)
       sessionStorage.setItem('analysis_result', JSON.stringify(data))
       router.push('/result')

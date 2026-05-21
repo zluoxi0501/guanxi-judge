@@ -43,21 +43,53 @@ function makeFallback(mainQuestion: string) {
   }
 }
 
-function buildResult(parsed: Record<string, any>, mainQuestion: string) {
+export async function POST(request: Request) {
+  const { pain_points, custom_pain_point, story, main_question } = await request.json()
+
+  if (!story?.trim() || !main_question) {
+    return Response.json({ error: 'Missing fields' }, { status: 400 })
+  }
+
+  const userPrompt = buildUserPrompt(pain_points, custom_pain_point, story, main_question)
+
+  let parsed: Record<string, any> | null = null
+  let errorMsg = ''
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const message = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 3000,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userPrompt }],
+      })
+
+      const textBlock = message.content.find(b => b.type === 'text')
+      const rawOutput = textBlock?.type === 'text' ? textBlock.text : ''
+      parsed = extractJson(rawOutput)
+      break
+    } catch (e) {
+      errorMsg = String(e)
+      if (attempt === 1) {
+        parsed = makeFallback(main_question)
+      }
+    }
+  }
+
   const labelToId: Record<string, string> = {}
   for (const [k, v] of Object.entries(QUESTION_LABELS)) {
     labelToId[v] = k
   }
 
-  const sqaRaw = parsed.selected_question_answer ?? {}
+  const sqaRaw = parsed!.selected_question_answer ?? {}
   const selectedQuestionAnswer = {
-    id: mainQuestion,
-    title: sqaRaw.title ?? QUESTION_LABELS[mainQuestion] ?? '',
-    hook: PERSPECTIVE_HOOKS[mainQuestion] ?? '',
+    id: main_question,
+    title: sqaRaw.title ?? QUESTION_LABELS[main_question] ?? '',
+    hook: PERSPECTIVE_HOOKS[main_question] ?? '',
     content: sqaRaw.content ?? '',
   }
 
-  const otherRaw: any[] = parsed.other_perspectives ?? []
+  const otherRaw: any[] = parsed!.other_perspectives ?? []
   const otherPerspectives = otherRaw.map((p: any) => {
     const title = p.title ?? ''
     const qid = labelToId[title] ?? title
@@ -69,88 +101,23 @@ function buildResult(parsed: Record<string, any>, mainQuestion: string) {
     }
   })
 
-  return {
-    id: crypto.randomUUID(),
+  const id = crypto.randomUUID()
+
+  return Response.json({
+    id,
     result: {
-      core_judgment: parsed.core_judgment ?? '',
-      real_need: parsed.real_need ?? '',
-      relationship_structure: parsed.relationship_structure ?? '',
-      future_trend: parsed.future_trend ?? '',
-      final_advice: parsed.final_advice ?? '',
-      advice_type: parsed.advice_type ?? 'observe',
-      closing_words: parsed.closing_words ?? '',
-      selected_question: mainQuestion,
+      core_judgment: parsed!.core_judgment ?? '',
+      real_need: parsed!.real_need ?? '',
+      relationship_structure: parsed!.relationship_structure ?? '',
+      future_trend: parsed!.future_trend ?? '',
+      final_advice: parsed!.final_advice ?? '',
+      advice_type: parsed!.advice_type ?? 'observe',
+      closing_words: parsed!.closing_words ?? '',
+      selected_question: main_question,
       selected_question_answer: selectedQuestionAnswer,
       other_perspectives: otherPerspectives,
     },
-  }
-}
-
-export async function POST(request: Request) {
-  const { pain_points, custom_pain_point, story, main_question } = await request.json()
-
-  if (!story?.trim() || !main_question) {
-    return Response.json({ error: 'Missing fields' }, { status: 400 })
-  }
-
-  const userPrompt = buildUserPrompt(pain_points, custom_pain_point, story, main_question)
-
-  // 用 streaming 保持连接活跃，避免 Netlify 超时
-  const encoder = new TextEncoder()
-  const readable = new ReadableStream({
-    async start(controller) {
-      // 先发一个空格保持连接
-      controller.enqueue(encoder.encode(' '))
-
-      let parsed: Record<string, any> | null = null
-
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const stream = await client.messages.create({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 3000,
-            stream: true,
-            system: SYSTEM_PROMPT,
-            messages: [{ role: 'user', content: userPrompt }],
-          })
-
-          let accumulated = ''
-          for await (const event of stream) {
-            if (event.type === 'content_block_delta') {
-              if (event.delta.type === 'text_delta') {
-                accumulated += event.delta.text
-              } else if ('text' in event.delta) {
-                accumulated += (event.delta as any).text
-              }
-              if (accumulated.length % 200 < 10) {
-                controller.enqueue(encoder.encode(' '))
-              }
-            }
-          }
-
-          parsed = extractJson(accumulated)
-          break
-        } catch (e) {
-          if (attempt === 1) {
-            // 把错误也发出来方便调试
-            controller.enqueue(encoder.encode('\n' + JSON.stringify({ _error: String(e) })))
-            parsed = makeFallback(main_question)
-          }
-        }
-      }
-
-      const result = buildResult(parsed!, main_question)
-      // 发送最终 JSON，前面加换行分隔符让前端能识别
-      controller.enqueue(encoder.encode('\n' + JSON.stringify(result)))
-      controller.close()
-    },
-  })
-
-  return new Response(readable, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Transfer-Encoding': 'chunked',
-      'Cache-Control': 'no-cache',
-    },
   })
 }
+
+export const maxDuration = 60
