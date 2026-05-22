@@ -210,7 +210,7 @@ function PaywallSection({
 
   if (unlocked) {
     return (
-      <Reveal delay={0} className="mt-20">
+      <div className="mt-20">
         <Divider />
         <div className="mt-16 space-y-0">
           {perspectives.map((p, i) => (
@@ -224,7 +224,7 @@ function PaywallSection({
             </div>
           ))}
         </div>
-      </Reveal>
+      </div>
     )
   }
 
