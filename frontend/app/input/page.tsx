@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { track } from '@/lib/tracking'
-import { callAnalyze } from '@/lib/analyze-client'
 
 const PAIN_POINTS = [
   '他突然冷淡',
@@ -65,12 +64,13 @@ export default function InputPage() {
     })
 
     try {
-      const data = await callAnalyze(
-        payload.pain_points,
-        payload.custom_pain_point,
-        payload.story,
-        payload.main_question,
-      )
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
       console.log('[submit] data:', data)
       sessionStorage.setItem('analysis_result', JSON.stringify(data))
       router.push('/result')

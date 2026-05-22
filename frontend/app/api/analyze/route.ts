@@ -1,4 +1,7 @@
+import Anthropic from '@anthropic-ai/sdk'
 import { SYSTEM_PROMPT, QUESTION_LABELS, PERSPECTIVE_HOOKS, buildUserPrompt } from '@/lib/prompt'
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 function extractJson(text: string): Record<string, any> {
   let cleaned = text.trim()
@@ -8,15 +11,10 @@ function extractJson(text: string): Record<string, any> {
     if (inner[inner.length - 1]?.trim() === '```') inner.pop()
     cleaned = inner.join('\n').trim()
   }
-  try {
-    return JSON.parse(cleaned)
-  } catch {
-    const match = cleaned.match(/\{[\s\S]*\}/)
-    if (match) {
-      try { return JSON.parse(match[0]) } catch {}
-    }
-    throw new Error('Cannot parse JSON')
-  }
+  try { return JSON.parse(cleaned) } catch {}
+  const match = cleaned.match(/\{[\s\S]*\}/)
+  if (match) { try { return JSON.parse(match[0]) } catch {} }
+  throw new Error('Cannot parse JSON')
 }
 
 function makeFallback(mainQuestion: string) {
@@ -40,59 +38,37 @@ function makeFallback(mainQuestion: string) {
   }
 }
 
+export const maxDuration = 60
+
 export async function POST(request: Request) {
   const { pain_points, custom_pain_point, story, main_question } = await request.json()
-
   if (!story?.trim() || !main_question) {
     return Response.json({ error: 'Missing fields' }, { status: 400 })
   }
 
   const userPrompt = buildUserPrompt(pain_points, custom_pain_point, story, main_question)
-
-  const apiKey = process.env.ANTHROPIC_API_KEY ?? ''
-  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
-
   let parsed: Record<string, any> | null = null
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const apiRes = await fetch(`${baseUrl}/v1/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 3000,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: userPrompt }],
-        }),
+      const message = await client.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 3000,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userPrompt }],
       })
-
-      if (!apiRes.ok) {
-        throw new Error(`API ${apiRes.status}`)
-      }
-
-      const data = await apiRes.json()
-      const textBlock = data.content?.find((b: any) => b.type === 'text')
-      const rawOutput = textBlock?.text ?? ''
-      parsed = extractJson(rawOutput)
+      const textBlock = message.content.find(b => b.type === 'text')
+      const raw = textBlock?.type === 'text' ? textBlock.text : ''
+      parsed = extractJson(raw)
       break
     } catch {
-      if (attempt === 1) {
-        parsed = makeFallback(main_question)
-      }
+      if (attempt === 1) parsed = makeFallback(main_question)
     }
   }
-
   if (!parsed) parsed = makeFallback(main_question)
 
   const labelToId: Record<string, string> = {}
-  for (const [k, v] of Object.entries(QUESTION_LABELS)) {
-    labelToId[v] = k
-  }
+  for (const [k, v] of Object.entries(QUESTION_LABELS)) labelToId[v] = k
 
   const sqaRaw = parsed.selected_question_answer ?? {}
   const otherRaw: any[] = parsed.other_perspectives ?? []
