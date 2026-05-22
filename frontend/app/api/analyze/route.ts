@@ -1,7 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
 import { SYSTEM_PROMPT, QUESTION_LABELS, PERSPECTIVE_HOOKS, buildUserPrompt } from '@/lib/prompt'
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 function extractJson(text: string): Record<string, any> {
   let cleaned = text.trim()
@@ -38,8 +35,6 @@ function makeFallback(mainQuestion: string) {
   }
 }
 
-export const maxDuration = 60
-
 export async function POST(request: Request) {
   const { pain_points, custom_pain_point, story, main_question } = await request.json()
   if (!story?.trim() || !main_question) {
@@ -47,18 +42,31 @@ export async function POST(request: Request) {
   }
 
   const userPrompt = buildUserPrompt(pain_points, custom_pain_point, story, main_question)
+  const apiKey = process.env.NEXT_PUBLIC_CLAUDE_KEY ?? process.env.ANTHROPIC_API_KEY ?? ''
+  const baseUrl = process.env.NEXT_PUBLIC_CLAUDE_URL ?? process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
+
   let parsed: Record<string, any> | null = null
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const message = await client.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 3000,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userPrompt }],
+      const apiRes = await fetch(`${baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 3000,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: userPrompt }],
+        }),
       })
-      const textBlock = message.content.find(b => b.type === 'text')
-      const raw = textBlock?.type === 'text' ? textBlock.text : ''
+      if (!apiRes.ok) throw new Error(`API ${apiRes.status}`)
+      const data = await apiRes.json()
+      const textBlock = data.content?.find((b: any) => b.type === 'text')
+      const raw = textBlock?.text ?? ''
       parsed = extractJson(raw)
       break
     } catch {
@@ -98,3 +106,5 @@ export async function POST(request: Request) {
     },
   })
 }
+
+export const runtime = 'edge'
