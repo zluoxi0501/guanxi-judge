@@ -43,7 +43,7 @@ export default function InputPage() {
     )
 
   const storyLen  = story.trim().length
-  const canSubmit = selectedPoints.length > 0 && storyLen >= 10 && question.length > 0 && !loading
+  const canSubmit = storyLen >= 10 && question.length > 0 && !loading
 
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -109,9 +109,8 @@ export default function InputPage() {
         <section className="space-y-5">
           <div className="space-y-1">
             <h3 style={{ color: '#F2EEE8', fontSize: '0.95rem', fontWeight: 500 }}>
-              哪些地方最让你难受？
-            </h3>
-            <p style={{ color: '#8F8880', fontSize: '0.75rem' }}>最多选 3 项</p>
+              哪些地方最让你难受？</h3>
+            <p style={{ color: '#8F8880', fontSize: '0.75rem' }}>可选，最多 3 项</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {PAIN_POINTS.map(p => {
