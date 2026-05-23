@@ -319,6 +319,11 @@ export default function ResultPage() {
     try {
       const parsed = JSON.parse(raw)
       setData(parsed)
+      // 恢复支付状态
+      const paidKey = `paid_${parsed.id}`
+      if (sessionStorage.getItem(paidKey) === '1') {
+        setUnlocked(true)
+      }
       gtrack('page_view', { current_step: 'result', user_input: parsed?.result?.advice_type ?? '' })
     } catch { router.replace('/input') }
   }, [router])
@@ -343,6 +348,7 @@ export default function ResultPage() {
     track('continue_after_qrcode_clicked', id)
     setShowModal(false)
     setUnlocked(true)
+    sessionStorage.setItem(`paid_${id}`, '1')
     track('paid_content_unlocked', id)
     gtrack('paid_content_unlocked', { current_step: 'result' })
   }

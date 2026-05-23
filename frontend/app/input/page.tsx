@@ -43,7 +43,7 @@ export default function InputPage() {
     )
 
   const storyLen  = story.trim().length
-  const canSubmit = selectedPoints.length > 0 && storyLen >= 30 && question.length > 0 && !loading
+  const canSubmit = selectedPoints.length > 0 && storyLen >= 10 && question.length > 0 && !loading
 
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -164,7 +164,7 @@ export default function InputPage() {
               {storyLen}
             </span>
           </div>
-          {storyLen > 0 && storyLen < 30 && (
+          {storyLen > 0 && storyLen < 10 && (
             <p style={{ color: '#8F8880', fontSize: '0.75rem' }}>再多说一点，分析会更准确</p>
           )}
         </section>
