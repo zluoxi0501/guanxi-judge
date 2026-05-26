@@ -240,8 +240,6 @@ function PaywallSection({
       </div>
     )
   }
-    )
-  }
 
   return (
     <>
