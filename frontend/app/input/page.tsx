@@ -26,6 +26,56 @@ const QUESTIONS = [
   { id: 'any_future',      label: '这段关系还有结果吗' },
 ]
 
+const LOADING_LINES = [
+  '有些问题，\n其实你已经想了很久。',
+  '你不是突然开始难过的。',
+  '有些关系，\n不是突然变坏的。',
+  '你一直在等一个\n"这次会不一样"的可能。',
+  '正在重新整理这段关系。',
+]
+
+function LoadingOverlay() {
+  const [idx, setIdx]         = useState(0)
+  const [visible, setVisible] = useState(true)
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setVisible(false)
+      setTimeout(() => {
+        setIdx(i => (i + 1) % LOADING_LINES.length)
+        setVisible(true)
+      }, 450)
+    }, 2200)
+    return () => clearInterval(timer)
+  }, [])
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 50,
+        background: 'rgba(10,10,10,0.95)',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div className="text-center space-y-10 max-w-xs px-6">
+        <div className="flex gap-1.5 justify-center">
+          {[0, 1, 2].map(i => (
+            <span key={i} className="w-1 h-1 rounded-full bg-accent/50 animate-blink fill-both"
+              style={{ animationDelay: `${i * 300}ms` }} />
+          ))}
+        </div>
+        <p
+          className="font-serif font-light text-text-secondary text-[1.05rem] leading-[2.1] tracking-wide whitespace-pre-line"
+          style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.45s ease' }}
+        >
+          {LOADING_LINES[idx]}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default function InputPage() {
   const router = useRouter()
   const [selectedPoints, setSelectedPoints] = useState<string[]>([])
@@ -47,6 +97,7 @@ export default function InputPage() {
 
   const handleSubmit = async () => {
     if (!canSubmit) return
+
     setLoading(true)
     setError('')
 
@@ -56,7 +107,16 @@ export default function InputPage() {
       story:             story.trim(),
       main_question:     question,
     }
-    console.log('[submit] payload:', payload)
+
+    // 验收日志
+    console.log('[submit] 开始', {
+      storyLen: payload.story.length,
+      painPoints: payload.pain_points,
+      question: payload.main_question,
+      apiUrl: (process.env.NEXT_PUBLIC_CLAUDE_URL || 'https://api.with7.cn') + '/v1/messages',
+      startTime: new Date().toISOString(),
+    })
+
     track('submit_analysis', {
       current_step: 'input',
       user_input: story.trim().slice(0, 200),
@@ -71,15 +131,17 @@ export default function InputPage() {
         payload.story,
         payload.main_question,
       )
+      console.log('[submit] 成功', { endTime: new Date().toISOString() })
       sessionStorage.setItem('analysis_result', JSON.stringify(data))
       router.push('/result')
     } catch (e) {
-      console.error('[submit] error:', e)
       const msg = e instanceof AnalyzeTimeoutError
         ? '分析超时，请重试'
-        : '当前接口响应异常，请重试'
+        : '分析失败，请重试'
+      console.error('[submit] 失败', { error: String(e), endTime: new Date().toISOString() })
       setError(msg)
       setLoading(false)
+      return
     }
   }
 
@@ -87,13 +149,11 @@ export default function InputPage() {
     track('page_view', { current_step: 'input' })
   }, [])
 
-  /* ── Loading state ── */
-  if (loading) {
-    return <LoadingScreen />
-  }
-
   return (
-    <main className="min-h-screen bg-bg py-16 px-6">
+    <main className="min-h-screen bg-bg py-16 px-6" style={{ position: 'relative' }}>
+      {/* loading 覆盖层 — 不卸载页面，状态保留 */}
+      {loading && <LoadingOverlay />}
+
       <div className="max-w-[28rem] mx-auto space-y-14">
 
         {/* header */}
@@ -161,7 +221,7 @@ export default function InputPage() {
               placeholder="那天发生了什么…"
               style={{ background: '#1f1d1b', borderRadius: '6px' }}
               className="w-full border border-border-subtle text-text px-5 py-5 text-[0.9375rem] placeholder:text-text-muted focus:outline-none focus:border-text-muted transition-colors leading-[1.95] font-light" />
-            <span className={`absolute bottom-3 right-4 text-micro ${storyLen < 30 ? 'text-text-muted' : 'text-text-secondary'}`}>
+            <span className={`absolute bottom-3 right-4 text-micro ${storyLen < 10 ? 'text-text-muted' : 'text-text-secondary'}`}>
               {storyLen}
             </span>
           </div>
@@ -190,61 +250,43 @@ export default function InputPage() {
         </section>
 
         {/* ── 提交 ── */}
-        <div className="space-y-4 pb-12">
-          {error && <p className="text-red-400/60 text-micro text-center">{error}</p>}
-          <button onClick={handleSubmit} disabled={!canSubmit}
-            className={`w-full py-[1.05rem] text-micro font-medium tracking-[0.3em] transition-all duration-300 ${
-              canSubmit ? 'bg-text text-bg hover:bg-accent' : 'bg-surface-2 text-text-muted cursor-not-allowed'
-            }`}>
+        <div className="space-y-3 pb-20">
+          {error && (
+            <p style={{ color: '#f87171', fontSize: '0.8125rem', textAlign: 'center' }}>{error}</p>
+          )}
+          <button
+            onClick={handleSubmit}
+            style={{
+              width: '100%',
+              minHeight: '52px',
+              padding: '0.9rem 0',
+              fontSize: '0.6875rem',
+              fontWeight: 500,
+              letterSpacing: '0.3em',
+              fontFamily: 'inherit',
+              border: 'none',
+              borderRadius: 0,
+              cursor: canSubmit ? 'pointer' : 'not-allowed',
+              pointerEvents: canSubmit ? 'auto' : 'none',
+              userSelect: 'none',
+              WebkitTapHighlightColor: 'transparent',
+              transition: 'background-color 0.3s, color 0.3s, opacity 0.3s',
+              // 明显的 enabled 颜色，避免误判为禁用
+              backgroundColor: canSubmit ? '#F2EEE8' : '#2a2826',
+              color: canSubmit ? '#1a1816' : '#5a5754',
+              zIndex: 10,
+              position: 'relative',
+            }}
+          >
             开始整理
           </button>
+          {!canSubmit && (
+            <p style={{ color: '#5a5754', fontSize: '0.6875rem', textAlign: 'center' }}>
+              {storyLen < 10 ? '请先描述发生了什么' : '请选择你最想知道什么'}
+            </p>
+          )}
         </div>
 
-      </div>
-    </main>
-  )
-}
-
-/* ── Loading Screen ── */
-const LOADING_LINES = [
-  '有些问题，\n其实你已经想了很久。',
-  '你不是突然开始难过的。',
-  '有些关系，\n不是突然变坏的。',
-  '你一直在等一个\n"这次会不一样"的可能。',
-  '正在重新整理这段关系。',
-]
-
-function LoadingScreen() {
-  const [idx, setIdx]         = useState(0)
-  const [visible, setVisible] = useState(true)
-
-  // cycle lines every 2.2s with a fade transition
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setVisible(false)
-      setTimeout(() => {
-        setIdx(i => (i + 1) % LOADING_LINES.length)
-        setVisible(true)
-      }, 450)
-    }, 2200)
-    return () => clearInterval(timer)
-  }, [])
-
-  return (
-    <main className="min-h-screen bg-bg flex flex-col items-center justify-center px-6">
-      <div className="text-center space-y-10 max-w-xs">
-        <div className="flex gap-1.5 justify-center">
-          {[0, 1, 2].map(i => (
-            <span key={i} className="w-1 h-1 rounded-full bg-accent/50 animate-blink fill-both"
-              style={{ animationDelay: `${i * 300}ms` }} />
-          ))}
-        </div>
-        <p
-          className="font-serif font-light text-text-secondary text-[1.05rem] leading-[2.1] tracking-wide whitespace-pre-line"
-          style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.45s ease' }}
-        >
-          {LOADING_LINES[idx]}
-        </p>
       </div>
     </main>
   )

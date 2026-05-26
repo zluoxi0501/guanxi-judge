@@ -52,7 +52,12 @@ export default function AnalyticsPage() {
   const [error, setError]         = useState('')
 
   useEffect(() => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8002'
+    const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL
+    if (!apiBase) {
+      setError('后端未配置（NEXT_PUBLIC_API_BASE_URL 未设置），analytics 不可用')
+      setLoading(false)
+      return
+    }
     fetch(`${apiBase}/api/analytics`)
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false) })
