@@ -34,11 +34,13 @@ const LOADING_LINES = [
   '正在重新整理这段关系。',
 ]
 
-function LoadingOverlay() {
+function LoadingOverlay({ streamText }: { streamText: string }) {
   const [idx, setIdx]         = useState(0)
   const [visible, setVisible] = useState(true)
+  const hasStream = streamText.length > 0
 
   useEffect(() => {
+    if (hasStream) return  // 有实时文字后停止轮播
     const timer = setInterval(() => {
       setVisible(false)
       setTimeout(() => {
@@ -47,13 +49,13 @@ function LoadingOverlay() {
       }, 450)
     }, 2200)
     return () => clearInterval(timer)
-  }, [])
+  }, [hasStream])
 
   return (
     <div
       style={{
         position: 'fixed', inset: 0, zIndex: 50,
-        background: 'rgba(10,10,10,0.95)',
+        background: 'rgba(10,10,10,0.96)',
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
       }}
@@ -65,12 +67,21 @@ function LoadingOverlay() {
               style={{ animationDelay: `${i * 300}ms` }} />
           ))}
         </div>
-        <p
-          className="font-serif font-light text-text-secondary text-[1.05rem] leading-[2.1] tracking-wide whitespace-pre-line"
-          style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.45s ease' }}
-        >
-          {LOADING_LINES[idx]}
-        </p>
+        {hasStream ? (
+          <p
+            className="font-serif font-light text-text-secondary text-[0.875rem] leading-[2] tracking-wide"
+            style={{ whiteSpace: 'pre-wrap', textAlign: 'left', maxHeight: '40vh', overflowY: 'hidden' }}
+          >
+            {streamText.slice(-300)}
+          </p>
+        ) : (
+          <p
+            className="font-serif font-light text-text-secondary text-[1.05rem] leading-[2.1] tracking-wide whitespace-pre-line"
+            style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.45s ease' }}
+          >
+            {LOADING_LINES[idx]}
+          </p>
+        )}
       </div>
     </div>
   )
@@ -84,6 +95,7 @@ export default function InputPage() {
   const [story, setStory]                   = useState('')
   const [question, setQuestion]             = useState('')
   const [loading, setLoading]               = useState(false)
+  const [loadingText, setLoadingText]        = useState('')
   const [error, setError]                   = useState('')
 
   const togglePoint = (p: string) =>
@@ -130,6 +142,7 @@ export default function InputPage() {
         payload.custom_pain_point,
         payload.story,
         payload.main_question,
+        (chunk) => setLoadingText(prev => prev + chunk),
       )
       console.log('[submit] 成功', { endTime: new Date().toISOString() })
       sessionStorage.setItem('analysis_result', JSON.stringify(data))
@@ -152,7 +165,7 @@ export default function InputPage() {
   return (
     <main className="min-h-screen bg-bg py-16 px-6" style={{ position: 'relative' }}>
       {/* loading 覆盖层 — 不卸载页面，状态保留 */}
-      {loading && <LoadingOverlay />}
+      {loading && <LoadingOverlay streamText={loadingText} />}
 
       <div className="max-w-[28rem] mx-auto space-y-14">
 
