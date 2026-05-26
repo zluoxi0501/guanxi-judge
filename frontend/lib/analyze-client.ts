@@ -30,7 +30,7 @@ function makeFallback(mainQuestion: string) {
     },
     other_perspectives: otherIds.map(k => ({
       title: QUESTION_LABELS[k],
-      content: '基于这段关系的整体状态，这个问题需要时间来验证。',
+      content: '',
     })),
   }
 }

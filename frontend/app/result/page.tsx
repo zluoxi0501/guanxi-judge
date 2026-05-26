@@ -204,60 +204,42 @@ function PaywallSection({
   onCloseModal: () => void
 }) {
   const viewFired = useRef(false)
-  const [selected, setSelected] = useState<string | null>(null)
 
   useEffect(() => {
     if (!viewFired.current) { viewFired.current = true; onView() }
   }, [onView])
 
   if (unlocked) {
-    const active = selected ? perspectives.find(p => p.id === selected) : null
-
     return (
       <div className="mt-20">
         <Divider />
-        <div className="mt-16">
-          <p className="text-text-muted text-micro mb-8">还有几个角度，你可以继续看</p>
-
-          {/* 卡片入口 */}
-          <div className="space-y-2 mb-12">
-            {perspectives.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setSelected(p.id)}
-                style={{ cursor: 'pointer' }}
-                className={`w-full text-left px-5 py-4 border rounded-md transition-all duration-200 ${
-                  selected === p.id
-                    ? 'border-accent/50 bg-accent-soft'
-                    : 'border-border hover:border-text-secondary'
-                }`}
-              >
-                <p style={{
-                  color: selected === p.id ? undefined : '#D8D2CB',
-                  fontSize: '0.9375rem',
-                  lineHeight: 1.8,
-                  fontWeight: 300,
-                }}
-                className={selected === p.id ? 'text-accent' : ''}
-                >
-                  {p.title}
-                </p>
-                {p.hook && (
-                  <p className="text-text-muted text-micro mt-0.5">{p.hook}</p>
+        <div className="mt-10 mb-6">
+          <p className="text-text-muted text-micro tracking-[0.3em]">完整解读已解锁</p>
+        </div>
+        <div className="space-y-0">
+          {perspectives.map((p, i) => {
+            const isEmpty = !p.content?.trim()
+            return (
+              <div key={p.id} className="space-y-7 mb-16">
+                <div className="space-y-1.5">
+                  <SectionLabel>{p.title}</SectionLabel>
+                  {p.hook && <p className="text-text-muted text-micro">{p.hook}</p>}
+                </div>
+                {isEmpty ? (
+                  <p style={{ color: '#6b6560', fontSize: '0.875rem', lineHeight: 1.8 }}>
+                    该部分生成失败，请重新分析。
+                  </p>
+                ) : (
+                  <Body text={p.content} />
                 )}
-              </button>
-            ))}
-          </div>
-
-          {/* 选中后展开内容 */}
-          {active && (
-            <div className="space-y-7 pb-8" style={{ borderTop: '1px solid #242424', paddingTop: '2rem' }}>
-              <SectionLabel>{active.title}</SectionLabel>
-              <Body text={active.content} />
-            </div>
-          )}
+                {i < perspectives.length - 1 && <div className="pt-2"><Divider /></div>}
+              </div>
+            )
+          })}
         </div>
       </div>
+    )
+  }
     )
   }
 
