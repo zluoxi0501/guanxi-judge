@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { track } from '@/lib/tracking'
-import { callAnalyze } from '@/lib/analyze-client'
+import { callAnalyze, AnalyzeTimeoutError } from '@/lib/analyze-client'
 
 const PAIN_POINTS = [
   '他突然冷淡',
@@ -71,12 +71,14 @@ export default function InputPage() {
         payload.story,
         payload.main_question,
       )
-      console.log('[submit] data:', data)
       sessionStorage.setItem('analysis_result', JSON.stringify(data))
       router.push('/result')
     } catch (e) {
       console.error('[submit] error:', e)
-      setError('出了点问题，请重试')
+      const msg = e instanceof AnalyzeTimeoutError
+        ? '分析超时，请重试'
+        : '当前接口响应异常，请重试'
+      setError(msg)
       setLoading(false)
     }
   }

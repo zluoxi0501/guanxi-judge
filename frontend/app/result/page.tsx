@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { track as gtrack } from '@/lib/tracking'
+import { callPaidContent } from '@/lib/analyze-client'
 
 interface PerspectiveAnswer {
   id: string
@@ -189,6 +190,7 @@ function PaywallSection({
   analysisId,
   unlocked,
   showModal,
+  loadingPaid,
   onView,
   onContinueClick,
   onConfirmPay,
@@ -198,6 +200,7 @@ function PaywallSection({
   analysisId: string
   unlocked: boolean
   showModal: boolean
+  loadingPaid: boolean
   onView: () => void
   onContinueClick: () => void
   onConfirmPay: () => void
@@ -210,6 +213,20 @@ function PaywallSection({
   }, [onView])
 
   if (unlocked) {
+    if (loadingPaid) {
+      return (
+        <div className="mt-20">
+          <Divider />
+          <div className="mt-10 flex gap-1.5">
+            {[0, 1, 2].map(i => (
+              <span key={i} className="w-1 h-1 rounded-full bg-accent/50 animate-blink fill-both"
+                style={{ animationDelay: `${i * 300}ms` }} />
+            ))}
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="mt-20">
         <Divider />
@@ -321,10 +338,12 @@ function PaywallSection({
 
 export default function ResultPage() {
   const router = useRouter()
-  const [data, setData]           = useState<StoredData | null>(null)
-  const [unlocked, setUnlocked]   = useState(false)
-  const [showModal, setShowModal] = useState(false)
-  const [feedback, setFeedback]   = useState<string | null>(null)
+  const [data, setData]                   = useState<StoredData | null>(null)
+  const [unlocked, setUnlocked]           = useState(false)
+  const [showModal, setShowModal]         = useState(false)
+  const [feedback, setFeedback]           = useState<string | null>(null)
+  const [paidPerspectives, setPaidPerspectives] = useState<PerspectiveAnswer[] | null>(null)
+  const [loadingPaid, setLoadingPaid]     = useState(false)
 
   useEffect(() => {
     const raw = sessionStorage.getItem('analysis_result')
@@ -332,10 +351,15 @@ export default function ResultPage() {
     try {
       const parsed = JSON.parse(raw)
       setData(parsed)
-      // 恢复支付状态
+      // 恢复支付状态和付费内容
       const paidKey = `paid_${parsed.id}`
       if (sessionStorage.getItem(paidKey) === '1') {
         setUnlocked(true)
+        // 尝试从 sessionStorage 恢复已加载的付费内容
+        const paidContentRaw = sessionStorage.getItem(`paid_content_${parsed.id}`)
+        if (paidContentRaw) {
+          try { setPaidPerspectives(JSON.parse(paidContentRaw)) } catch {}
+        }
       }
       gtrack('page_view', { current_step: 'result', user_input: parsed?.result?.advice_type ?? '' })
     } catch { router.replace('/input') }
@@ -357,13 +381,30 @@ export default function ResultPage() {
     setShowModal(true)
   }
   const handleCloseModal     = ()            => setShowModal(false)
-  const handleConfirmPay     = (id: string) => {
+  const handleConfirmPay     = async (id: string) => {
     track('continue_after_qrcode_clicked', id)
     setShowModal(false)
     setUnlocked(true)
     sessionStorage.setItem(`paid_${id}`, '1')
     track('paid_content_unlocked', id)
     gtrack('paid_content_unlocked', { current_step: 'result' })
+
+    // 加载付费内容
+    const raw = sessionStorage.getItem('analysis_result')
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw)
+      const context = parsed._context
+      if (!context) return
+      setLoadingPaid(true)
+      const perspectives = await callPaidContent(context)
+      setPaidPerspectives(perspectives)
+      sessionStorage.setItem(`paid_content_${id}`, JSON.stringify(perspectives))
+    } catch {
+      // 静默失败，展示空内容提示
+    } finally {
+      setLoadingPaid(false)
+    }
   }
 
   const sendFeedback = async (type: string) => {
@@ -500,10 +541,11 @@ export default function ResultPage() {
         {/* ══ 付费墙 ══ */}
         {result.other_perspectives?.length > 0 && (
           <PaywallSection
-            perspectives={result.other_perspectives}
+            perspectives={paidPerspectives ?? result.other_perspectives}
             analysisId={data.id}
             unlocked={unlocked}
             showModal={showModal}
+            loadingPaid={loadingPaid}
             onView={() => handlePaywallView(data.id)}
             onContinueClick={() => handleContinueClick(data.id)}
             onConfirmPay={() => handleConfirmPay(data.id)}
